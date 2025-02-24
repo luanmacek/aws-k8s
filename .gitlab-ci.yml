@@ -23,7 +23,9 @@ cache:
 ##################################
 terraform-validate:
   stage: validate
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
   script:
     - terraform init -backend=false
     - terraform validate
@@ -31,16 +33,13 @@ terraform-validate:
     - merge_requests
     - main
 
-##################################
-# 2) Terraform - Plan
-##################################
 terraform-plan:
   stage: plan
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
   script:
     - terraform init
-    # If you have a remote backend, run something like:
-    # terraform init $TF_BACKEND_CONFIG
     - terraform plan -var-file=terraform.tfvars -out=tfplan
   artifacts:
     paths:
@@ -50,37 +49,21 @@ terraform-plan:
     - merge_requests
     - main
 
-##################################
-# 3) Manual Approval Before Apply
-##################################
-terraform-approve:
-  stage: approve
-  image: alpine:latest
-  script:
-    - echo "Waiting for manual approval to apply Terraform changes..."
-  when: manual
-  allow_failure: false
-  only:
-    - merge_requests
-    - main
-
-##################################
-# 4) Terraform - Apply
-##################################
 terraform-apply:
   stage: apply
-  image: hashicorp/terraform:latest
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
   needs:
     - job: terraform-plan
       artifacts: true
     - job: terraform-approve
   script:
     - terraform init
-    # If you have a remote backend, run something like:
-    # terraform init $TF_BACKEND_CONFIG
     - terraform apply -auto-approve tfplan
   only:
     - main
+
 
 ##################################
 # 5) Deploy Kubernetes Workloads to EKS
