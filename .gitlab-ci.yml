@@ -78,7 +78,8 @@ deploy-k8s:
   stage: deploy
   image: ubuntu:20.04
   script:
-    - apt-get update && apt-get install -y awscli curl
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt-get update -y && apt-get install -y awscli curl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
@@ -99,7 +100,7 @@ deploy-ecs:
   script:
     - apk update && apk add --no-cache python3 py3-pip openssh-client
     - pip3 install awscli
-    # Use an inline inventory and set connection to local so Ansible runs on the runner
+    # Run the playbook using an inline inventory and local connection so that it doesn't attempt SSH
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
   only:
     - main
@@ -118,6 +119,8 @@ rollback:
     - pip3 install ansible awscli
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt-get update -y && apt-get install -y awscli
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl delete -f k8s/ || true
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml --extra-vars "rollback=true"
