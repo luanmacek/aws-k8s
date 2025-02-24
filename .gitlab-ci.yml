@@ -76,10 +76,11 @@ terraform-apply:
 ##################################
 deploy-k8s:
   stage: deploy
-  image:
-    name: lachlanevenson/k8s-awscli:latest
-    entrypoint: [""]
+  image: ubuntu:20.04
   script:
+    - apt-get update && apt-get install -y awscli curl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl apply -f k8s/
   environment:
@@ -96,9 +97,10 @@ deploy-ecs:
   stage: deploy
   image: willhallonline/ansible:alpine
   script:
-    - apk update && apk add --no-cache python3 py3-pip
+    - apk update && apk add --no-cache python3 py3-pip openssh-client
     - pip3 install awscli
-    - ansible-playbook -i "localhost," ansible/ecs-deploy.yaml
+    # Use an inline inventory and set connection to local so Ansible runs on the runner
+    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
   only:
     - main
 
@@ -110,20 +112,14 @@ rollback:
   when: on_failure
   image: hashicorp/terraform:latest
   script:
-    # Destroy Terraform-managed infrastructure
     - terraform init
     - terraform destroy -auto-approve
-    # Install dependencies for kubectl and ansible
     - apk update && apk add --no-cache curl python3 py3-pip
-    - pip3 install ansible
-    # Install kubectl
+    - pip3 install ansible awscli
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    - chmod +x kubectl
-    - mv kubectl /usr/local/bin/
-    # Install AWS CLI (if not already available)
-    - apt-get update && apt-get install -y awscli
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl delete -f k8s/ || true
-    - ansible-playbook -i "localhost," ansible/ecs-deploy.yaml --extra-vars "rollback=true"
+    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml --extra-vars "rollback=true"
   only:
     - main
