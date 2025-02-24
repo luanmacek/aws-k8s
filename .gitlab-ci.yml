@@ -77,15 +77,18 @@ terraform-apply:
 deploy-k8s:
   stage: deploy
   image: ubuntu:20.04
+  needs: ["terraform-apply"] 
   script:
     - export DEBIAN_FRONTEND=noninteractive
     - apt-get update -y && apt-get install -y awscli curl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Generate kubeconfig using AWS CLI; this usually writes to $HOME/.kube/config
+    # Create .kube directory if it doesn't exist
+    - mkdir -p $HOME/.kube
+    # Generate kubeconfig
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-    # Ensure the kubeconfig uses v1beta1 for the exec plugin
     - export KUBECONFIG=$HOME/.kube/config
+    # Check if substitution is necessary; remove if not required
     - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
     - kubectl apply -f k8s/
   environment:
@@ -101,12 +104,12 @@ deploy-k8s:
 deploy-ecs:
   stage: deploy
   image: willhallonline/ansible:alpine
+  needs: ["terraform-apply"]
   script:
     - apk update && apk add --no-cache python3 py3-pip openssh-client
-    - pip3 install awscli
-    # Export AWS_DEFAULT_REGION so that AWS CLI picks up the region for ECS commands
+    - pip install --upgrade pip
+    - pip install awscli
     - export AWS_DEFAULT_REGION=$AWS_REGION
-    # Run the playbook using an inline inventory and local connection to avoid SSH attempts
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
   only:
     - main
