@@ -70,10 +70,10 @@ terraform-approve:
 terraform-apply:
   stage: apply
   image: hashicorp/terraform:latest
-  dependencies:
-    - terraform-plan
   needs:
-    - terraform-approve  # Enforce that the manual approval must happen first
+    - job: terraform-plan
+      artifacts: true
+    - job: terraform-approve
   script:
     - terraform init
     # If you have a remote backend, run something like:
@@ -124,6 +124,5 @@ rollback:
     - kubectl delete -f k8s/ || true
     # 3) Roll back ECS tasks
     - ansible-playbook ansible/ecs-deploy.yaml --extra-vars "rollback=true"
-  # This only triggers if the pipeline fails in an earlier stage
   only:
     - main
