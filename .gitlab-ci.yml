@@ -65,13 +65,14 @@ terraform-apply:
   only:
     - main
 
-
 ##################################
 # 5) Deploy Kubernetes Workloads to EKS
 ##################################
 deploy-k8s:
   stage: deploy
-  image: bitnami/kubectl:latest
+  image:
+    name: bitnami/kubectl:latest
+    entrypoint: [""]
   script:
     - kubectl apply -f k8s/
   environment:
@@ -86,9 +87,9 @@ deploy-k8s:
 ##################################
 deploy-ecs:
   stage: deploy
-  image: ansible/ansible:latest
+  image: geerlingguy/ansible:latest
   script:
-    # Configure AWS credentials with environment variables
+    # Configure AWS credentials with environment variables if needed
     - ansible-playbook ansible/ecs-deploy.yaml
   only:
     - main
@@ -104,9 +105,16 @@ rollback:
     # 1) Destroy Terraform-managed infrastructure
     - terraform init
     - terraform destroy -auto-approve
-    # 2) Remove K8s resources
+    # 2) Install dependencies to run kubectl and ansible
+    - apk update && apk add --no-cache curl python3 py3-pip
+    - pip3 install ansible
+    # 3) Install kubectl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - chmod +x kubectl
+    - mv kubectl /usr/local/bin/
+    # 4) Remove K8s resources
     - kubectl delete -f k8s/ || true
-    # 3) Roll back ECS tasks
+    # 5) Roll back ECS tasks
     - ansible-playbook ansible/ecs-deploy.yaml --extra-vars "rollback=true"
   only:
     - main
