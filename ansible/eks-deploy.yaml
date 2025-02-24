@@ -1,0 +1,21 @@
+---
+- name: Deploy Kubernetes workloads on AWS EKS
+  hosts: localhost
+  tasks:
+    - name: Apply Namespace
+      command: kubectl apply -f k8s/namespace.yaml
+
+    - name: Apply ConfigMap
+      command: kubectl apply -f k8s/configmap.yaml
+
+    - name: Apply Secrets
+      command: kubectl apply -f k8s/secret.yaml
+
+    - name: Apply RBAC Roles
+      command: kubectl apply -f k8s/rbac.yaml
+
+    - name: Apply Deployment
+      command: kubectl apply -f k8s/fargate-deployment.yaml
+
+    - name: Apply Service
+      command: kubectl apply -f k8s/fargate-service.yaml

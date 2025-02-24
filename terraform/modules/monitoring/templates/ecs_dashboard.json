@@ -1,0 +1,21 @@
+{
+    "widgets": [
+      {
+        "type": "metric",
+        "x": 0,
+        "y": 0,
+        "width": 12,
+        "height": 6,
+        "properties": {
+          "metrics": [
+            [ "AWS/ECS", "CPUUtilization", "ClusterName", "${ecs_cluster}" ]
+          ],
+          "title": "ECS CPU Utilization",
+          "region": "eu-central-1",
+          "stat": "Average",
+          "period": 300
+        }
+      }
+    ]
+  }
+  

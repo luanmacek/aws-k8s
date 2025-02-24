@@ -1,0 +1,121 @@
+# .gitlab-ci.yml
+
+stages:
+  - validate
+  - plan
+  - approve
+  - apply
+  - deploy
+  - cleanup
+
+# Global variables for AWS and Terraform
+variables:
+  AWS_REGION: "eu-central-1"
+  TF_IN_AUTOMATION: "true"
+  # If you have AWS credentials as GitLab variables, they’ll be available here.
+
+# Optional: Cache .terraform directory for faster builds
+cache:
+  key: terraform
+  paths:
+    - .terraform/
+
+##################################
+# Validate Terraform
+##################################
+terraform-validate:
+  stage: validate
+  image: hashicorp/terraform:latest
+  script:
+    - terraform init -backend=false
+    - terraform validate
+
+##################################
+# Terraform - Plan
+##################################
+terraform-plan:
+  stage: plan
+  image: hashicorp/terraform:latest
+  script:
+    - terraform init
+    # Optionally add: terraform fmt -check
+    - terraform plan -var-file=terraform.tfvars -out=tfplan
+  artifacts:
+    paths:
+      - tfplan
+    when: always  # Ensure tfplan is available even if plan fails
+  # Restrict to changes in Terraform files or certain directories
+  # only:
+  #   changes:
+  #     - "*.tf"
+  #     - "modules/**"
+  #     - "terraform.tfvars"
+
+##################################
+# Manual Approval Before Apply (Optional)
+##################################
+terraform-approve:
+  stage: approve
+  image: alpine:latest
+  script:
+    - echo "Waiting for manual approval to apply Terraform changes..."
+  when: manual
+  allow_failure: false
+
+##################################
+# Terraform - Apply
+##################################
+terraform-apply:
+  stage: apply
+  image: hashicorp/terraform:latest
+  dependencies:
+    - terraform-plan
+  script:
+    - terraform init
+    - terraform apply -auto-approve tfplan
+  # Optionally require manual approval before apply:
+  # needs:
+  #   - job: terraform-approve
+  #     artifacts: false
+
+##################################
+# Deploy Kubernetes Workloads to EKS
+##################################
+deploy-k8s:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  script:
+    # Configure kubectl using EKS context
+    - aws eks update-kubeconfig --region $AWS_REGION --name my-eks-cluster
+    # Deploy or update your K8s manifests
+    - kubectl apply -f k8s/
+  # You can also define environment here if you want GitLab Environments
+  # environment:
+  #   name: production
+
+##################################
+# Deploy ECS Tasks via Ansible
+##################################
+deploy-ecs:
+  stage: deploy
+  image: ansible/ansible:latest
+  script:
+    # If needed, configure AWS credentials with environment variables or a credentials file
+    - ansible-playbook ansible/ecs-deploy.yaml
+
+##################################
+# Rollback Mechanism (On Failure)
+##################################
+rollback:
+  stage: cleanup
+  when: on_failure
+  image: hashicorp/terraform:latest
+  script:
+    # 1) Destroy Terraform-managed infrastructure
+    - terraform init
+    - terraform destroy -auto-approve
+    # 2) Remove K8s resources
+    - aws eks update-kubeconfig --region $AWS_REGION --name my-eks-cluster
+    - kubectl delete -f k8s/ || true
+    # 3) Roll back ECS tasks
+    - ansible-playbook ansible/ecs-deploy.yaml --extra-vars "rollback=true"

@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fargate-app
+  namespace: fargate
+  labels:
+    app: fargate-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fargate-app
+  template:
+    metadata:
+      labels:
+        app: fargate-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "80"
+    spec:
+      runtimeClassName: fargate
+      serviceAccountName: fargate-app-sa
+      containers:
+        - name: fargate-app
+          image: nginx:latest
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: fargate-app-config
+            - secretRef:
+                name: fargate-app-secret
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10

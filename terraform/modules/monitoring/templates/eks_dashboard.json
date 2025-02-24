@@ -1,0 +1,21 @@
+{
+    "widgets": [
+      {
+        "type": "metric",
+        "x": 0,
+        "y": 0,
+        "width": 12,
+        "height": 6,
+        "properties": {
+          "metrics": [
+            [ "AWS/EKS/Cluster", "cpuUtilization", "ClusterName", "${eks_cluster}" ]
+          ],
+          "title": "EKS CPU Utilization",
+          "region": "eu-central-1",
+          "stat": "Average",
+          "period": 300
+        }
+      }
+    ]
+  }
+  

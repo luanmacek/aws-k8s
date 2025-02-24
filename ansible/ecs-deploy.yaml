@@ -1,0 +1,9 @@
+---
+- name: Run ECS task on Fargate
+  hosts: localhost
+  tasks:
+    - name: Run ECS Task
+      command: >
+        aws ecs run-task --cluster ecs-cluster --launch-type FARGATE
+        --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx],securityGroups=[sg-xxxxx],assignPublicIp=ENABLED}"
+        --task-definition ecs-task
