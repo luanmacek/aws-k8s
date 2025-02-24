@@ -57,7 +57,6 @@ terraform-apply:
   needs:
     - job: terraform-plan
       artifacts: true
-    - job: terraform-approve
   script:
     - terraform init
     - terraform apply -auto-approve tfplan
