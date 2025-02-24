@@ -1,0 +1,16 @@
+spec:
+  template:
+    spec:
+      containers:
+      - name: gitlab-agent
+        volumeMounts:
+        - name: agent-token
+          mountPath: /etc/agentk/secrets
+          readOnly: true
+      volumes:
+      - name: agent-token
+        secret:
+          secretName: gitlab-agent-token
+          items:
+          - key: token
+            path: token
