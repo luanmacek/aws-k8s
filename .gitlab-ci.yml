@@ -9,6 +9,7 @@ stages:
 # Global variables
 variables:
   AWS_REGION: "eu-central-1"
+  EKS_CLUSTER_NAME: "my-eks-cluster"   # Set your EKS cluster name here
   TF_IN_AUTOMATION: "true"
   # Optional: If storing Terraform state in S3, you might have:
   # TF_BACKEND_CONFIG: "-backend-config=bucket=my-terraform-state-bucket -backend-config=region=eu-central-1"
@@ -74,7 +75,11 @@ deploy-k8s:
     name: bitnami/kubectl:latest
     entrypoint: [""]
   script:
-    - kubectl apply -f k8s/ --validate=false
+    # Install AWS CLI to generate kubeconfig
+    - apt-get update && apt-get install -y awscli
+    # Generate kubeconfig using your AWS credentials
+    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+    - kubectl apply -f k8s/
   environment:
     name: production
     kubernetes:
@@ -83,14 +88,14 @@ deploy-k8s:
     - main
 
 ##################################
-# 6) Deploy ECS Tasks via Ansible
+# 6) Deploy ECS Tasks via Ansible (Run on AWS)
 ##################################
 deploy-ecs:
   stage: deploy
   image: willhallonline/ansible:alpine
   script:
-    # Configure AWS credentials with environment variables if needed
-    - ansible-playbook ansible/ecs-deploy.yaml
+    # Use your Ansible inventory that targets your AWS host(s)
+    - ansible-playbook -i inventory ansible/ecs-deploy.yaml
   only:
     - main
 
@@ -112,9 +117,11 @@ rollback:
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl
     - mv kubectl /usr/local/bin/
-    # 4) Remove K8s resources
+    # 4) If AWS credentials are available, generate kubeconfig and remove K8s resources
+    - apt-get update && apt-get install -y awscli
+    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl delete -f k8s/ || true
-    # 5) Roll back ECS tasks
-    - ansible-playbook ansible/ecs-deploy.yaml --extra-vars "rollback=true"
+    # 5) Roll back ECS tasks using your inventory
+    - ansible-playbook -i inventory ansible/ecs-deploy.yaml --extra-vars "rollback=true"
   only:
     - main
