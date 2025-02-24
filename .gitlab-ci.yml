@@ -9,10 +9,9 @@ stages:
 # Global variables
 variables:
   AWS_REGION: "eu-central-1"
-  EKS_CLUSTER_NAME: "my-eks-cluster"   # Set your EKS cluster name here
+  EKS_CLUSTER_NAME: "my-eks-cluster"   # Your EKS cluster name
   TF_IN_AUTOMATION: "true"
-  # Optional: If storing Terraform state in S3, you might have:
-  # TF_BACKEND_CONFIG: "-backend-config=bucket=my-terraform-state-bucket -backend-config=region=eu-central-1"
+  # AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.) should be set as protected CI/CD variables
 
 cache:
   key: terraform
@@ -34,6 +33,9 @@ terraform-validate:
     - merge_requests
     - main
 
+##################################
+# 2) Terraform Plan
+##################################
 terraform-plan:
   stage: plan
   image:
@@ -51,6 +53,9 @@ terraform-plan:
     - merge_requests
     - main
 
+##################################
+# 3) Terraform Apply
+##################################
 terraform-apply:
   stage: apply
   image:
@@ -67,17 +72,14 @@ terraform-apply:
     - main
 
 ##################################
-# 5) Deploy Kubernetes Workloads to EKS
+# 4) Deploy Kubernetes Workloads to EKS
 ##################################
 deploy-k8s:
   stage: deploy
   image:
-    name: bitnami/kubectl:latest
+    name: lachlanevenson/k8s-awscli:latest
     entrypoint: [""]
   script:
-    # Install AWS CLI to generate kubeconfig
-    - apt-get update && apt-get install -y awscli
-    # Generate kubeconfig using your AWS credentials
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl apply -f k8s/
   environment:
@@ -88,40 +90,40 @@ deploy-k8s:
     - main
 
 ##################################
-# 6) Deploy ECS Tasks via Ansible (Run on AWS)
+# 5) Deploy ECS Tasks via Ansible (Run on AWS)
 ##################################
 deploy-ecs:
   stage: deploy
   image: willhallonline/ansible:alpine
   script:
-    # Use your Ansible inventory that targets your AWS host(s)
-    - ansible-playbook -i inventory ansible/ecs-deploy.yaml
+    - apk update && apk add --no-cache python3 py3-pip
+    - pip3 install awscli
+    - ansible-playbook -i "localhost," ansible/ecs-deploy.yaml
   only:
     - main
 
 ##################################
-# Rollback Mechanism (On Failure)
+# 6) Rollback Mechanism (On Failure)
 ##################################
 rollback:
   stage: cleanup
   when: on_failure
   image: hashicorp/terraform:latest
   script:
-    # 1) Destroy Terraform-managed infrastructure
+    # Destroy Terraform-managed infrastructure
     - terraform init
     - terraform destroy -auto-approve
-    # 2) Install dependencies to run kubectl and ansible
+    # Install dependencies for kubectl and ansible
     - apk update && apk add --no-cache curl python3 py3-pip
     - pip3 install ansible
-    # 3) Install kubectl
+    # Install kubectl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl
     - mv kubectl /usr/local/bin/
-    # 4) If AWS credentials are available, generate kubeconfig and remove K8s resources
+    # Install AWS CLI (if not already available)
     - apt-get update && apt-get install -y awscli
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl delete -f k8s/ || true
-    # 5) Roll back ECS tasks using your inventory
-    - ansible-playbook -i inventory ansible/ecs-deploy.yaml --extra-vars "rollback=true"
+    - ansible-playbook -i "localhost," ansible/ecs-deploy.yaml --extra-vars "rollback=true"
   only:
     - main
