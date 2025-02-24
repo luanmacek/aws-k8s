@@ -39,11 +39,12 @@ terraform-plan:
     name: hashicorp/terraform:latest
     entrypoint: [""]
   script:
+    - cd terraform
     - terraform init
-    - terraform plan -var-file=terraform/terraform.tfvars -out=tfplan
+    - terraform plan -var-file=terraform.tfvars -out=tfplan
   artifacts:
     paths:
-      - tfplan
+      - terraform/tfplan
     when: always
   only:
     - merge_requests
@@ -58,6 +59,7 @@ terraform-apply:
     - job: terraform-plan
       artifacts: true
   script:
+    - cd terraform
     - terraform init
     - terraform apply -auto-approve tfplan
   only:
