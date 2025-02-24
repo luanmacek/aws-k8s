@@ -82,9 +82,10 @@ deploy-k8s:
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - mkdir -p $HOME/.kube
-    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+    # Generate kubeconfig and set KUBECONFIG explicitly
+    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME --kubeconfig $HOME/.kube/config
     - export KUBECONFIG=$HOME/.kube/config
-    - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
+    # Remove sed command if no longer needed
     - kubectl apply -f k8s/
   environment:
     name: production
@@ -104,6 +105,10 @@ deploy-ecs:
     - pip install awscli
     - export AWS_DEFAULT_REGION=$AWS_REGION
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
+      --extra-vars "subnet_ids='$(terraform output -raw private_subnet_ids)'
+                    security_group_ids='$(terraform output -raw ecs_security_group_id)'
+                    task_definition='$(terraform output -raw ecs_task_definition)'
+                    ecs_cluster_name='$(terraform output -raw ecs_cluster_name)'"
 
 ##################################
 # 6) Rollback Mechanism (On Failure)
