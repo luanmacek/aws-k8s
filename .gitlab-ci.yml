@@ -82,7 +82,11 @@ deploy-k8s:
     - apt-get update -y && apt-get install -y awscli curl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
+    # Generate kubeconfig using AWS CLI; this usually writes to $HOME/.kube/config
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+    # Ensure the kubeconfig uses v1beta1 for the exec plugin
+    - export KUBECONFIG=$HOME/.kube/config
+    - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
     - kubectl apply -f k8s/
   environment:
     name: production
@@ -100,7 +104,9 @@ deploy-ecs:
   script:
     - apk update && apk add --no-cache python3 py3-pip openssh-client
     - pip3 install awscli
-    # Run the playbook using an inline inventory and local connection so that it doesn't attempt SSH
+    # Export AWS_DEFAULT_REGION so that AWS CLI picks up the region for ECS commands
+    - export AWS_DEFAULT_REGION=$AWS_REGION
+    # Run the playbook using an inline inventory and local connection to avoid SSH attempts
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
   only:
     - main
@@ -122,6 +128,8 @@ rollback:
     - export DEBIAN_FRONTEND=noninteractive
     - apt-get update -y && apt-get install -y awscli
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+    - export KUBECONFIG=$HOME/.kube/config
+    - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
     - kubectl delete -f k8s/ || true
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml --extra-vars "rollback=true"
   only:
