@@ -1,3 +1,10 @@
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "testing"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
 stages:
   - validate
   - plan
@@ -9,9 +16,8 @@ stages:
 # Global variables
 variables:
   AWS_REGION: "eu-central-1"
-  EKS_CLUSTER_NAME: "my-eks-cluster"   # Your EKS cluster name
+  EKS_CLUSTER_NAME: "my-eks-cluster"
   TF_IN_AUTOMATION: "true"
-  # AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.) should be set as protected CI/CD variables
 
 cache:
   key: terraform
@@ -29,11 +35,6 @@ terraform-validate:
   script:
     - terraform init -backend=false
     - terraform validate
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_COMMIT_BRANCH == "testing"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-
 
 ##################################
 # 2) Terraform Plan
@@ -51,9 +52,6 @@ terraform-plan:
     paths:
       - terraform/tfplan
     when: always
-  only:
-    - merge_requests
-    - main
 
 ##################################
 # 3) Terraform Apply
@@ -70,8 +68,6 @@ terraform-apply:
     - cd terraform
     - terraform init
     - terraform apply -auto-approve tfplan
-  only:
-    - main
 
 ##################################
 # 4) Deploy Kubernetes Workloads to EKS
@@ -79,26 +75,21 @@ terraform-apply:
 deploy-k8s:
   stage: deploy
   image: ubuntu:20.04
-  needs: ["terraform-apply"] 
+  needs: ["terraform-apply"]
   script:
     - export DEBIAN_FRONTEND=noninteractive
     - apt-get update -y && apt-get install -y awscli curl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Create .kube directory if it doesn't exist
     - mkdir -p $HOME/.kube
-    # Generate kubeconfig
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - export KUBECONFIG=$HOME/.kube/config
-    # Check if substitution is necessary; remove if not required
     - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
     - kubectl apply -f k8s/
   environment:
     name: production
     kubernetes:
       agent: eks-gitlab-agent
-  only:
-    - main
 
 ##################################
 # 5) Deploy ECS Tasks via Ansible (Run on AWS)
@@ -113,8 +104,6 @@ deploy-ecs:
     - pip install awscli
     - export AWS_DEFAULT_REGION=$AWS_REGION
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
-  only:
-    - main
 
 ##################################
 # 6) Rollback Mechanism (On Failure)
@@ -137,5 +126,3 @@ rollback:
     - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
     - kubectl delete -f k8s/ || true
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml --extra-vars "rollback=true"
-  only:
-    - main
