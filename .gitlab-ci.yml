@@ -13,7 +13,6 @@ stages:
   - deploy
   - cleanup
 
-# Global variables
 variables:
   AWS_REGION: "eu-central-1"
   EKS_CLUSTER_NAME: "my-eks-cluster"
@@ -29,9 +28,7 @@ cache:
 ##################################
 terraform-validate:
   stage: validate
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
+  image: hashicorp/terraform:latest
   script:
     - terraform init -backend=false
     - terraform validate
@@ -41,9 +38,7 @@ terraform-validate:
 ##################################
 terraform-plan:
   stage: plan
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
+  image: hashicorp/terraform:latest
   script:
     - cd terraform
     - terraform init
@@ -51,71 +46,63 @@ terraform-plan:
   artifacts:
     paths:
       - terraform/tfplan
-    when: always
 
 ##################################
-# 3) Terraform Apply
+# 3) Terraform Apply (Capture Outputs)
 ##################################
 terraform-apply:
   stage: apply
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
-  needs:
-    - job: terraform-plan
-      artifacts: true
+  image: hashicorp/terraform:latest
+  needs: ["terraform-plan"]
   script:
     - cd terraform
     - terraform init
     - terraform apply -auto-approve tfplan
+    # Save outputs to JSON file
+    - terraform output -json > ../terraform_outputs.json
+  artifacts:
+    paths:
+      - terraform_outputs.json  # Pass outputs to downstream jobs
 
 ##################################
-# 4) Deploy Kubernetes Workloads to EKS
+# 4) Deploy Kubernetes Workloads
 ##################################
 deploy-k8s:
   stage: deploy
   image: ubuntu:20.04
   needs: ["terraform-apply"]
   script:
-    - export DEBIAN_FRONTEND=noninteractive
     - apt-get update -y && apt-get install -y curl unzip
-    # Install AWS CLI v2
+    # Install AWS CLI v2 and kubectl
     - curl -Lo awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
     - unzip awscliv2.zip && ./aws/install
-    # Install kubectl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Generate kubeconfig
+    # Configure EKS access
     - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+    - kubectl apply -f k8s/namespace.yaml
     - kubectl apply -f k8s/
-  environment:
-    name: production
-    kubernetes:
-      agent: eks-gitlab-agent
 
 ##################################
-# 5) Deploy ECS Tasks via Ansible (Run on AWS)
+# 5) Deploy ECS Tasks (No Terraform!)
 ##################################
 deploy-ecs:
   stage: deploy
   image: willhallonline/ansible:alpine
   needs: ["terraform-apply"]
   script:
-    - apk update && apk add --no-cache python3 py3-pip openssh-client curl unzip
-    # Install Terraform
-    - curl -LO https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
-    - unzip terraform_1.5.7_linux_amd64.zip -d /usr/local/bin/
-    # Install AWS CLI v2 (required for EKS kubeconfig)
-    - curl -Lo awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
-    - unzip awscliv2.zip && ./aws/install
-    # Use Terraform outputs
-    - export AWS_DEFAULT_REGION=$AWS_REGION
-    - cd terraform  # Navigate to Terraform directory
-    - ansible-playbook -i "localhost," -c local ../ansible/ecs-deploy.yaml
-      --extra-vars "subnet_ids='$(terraform output -raw private_subnet_ids)'
-                    security_group_ids='$(terraform output -raw ecs_security_group_id)'
-                    task_definition='$(terraform output -raw ecs_task_definition)'
-                    ecs_cluster_name='$(terraform output -raw ecs_cluster_name)'"
+    - apk add jq  # Install JSON parser
+    # Extract values from terraform_outputs.json
+    - SUBNET_IDS=$(jq -r '.private_subnet_ids.value[]' terraform_outputs.json | tr '\n' ',' | sed 's/,$//')
+    - SECURITY_GROUP_IDS=$(jq -r '.ecs_security_group_id.value' terraform_outputs.json)
+    - TASK_DEFINITION=$(jq -r '.ecs_task_definition.value' terraform_outputs.json)
+    - ECS_CLUSTER=$(jq -r '.ecs_cluster_name.value' terraform_outputs.json)
+    # Run Ansible with extracted values
+    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
+      --extra-vars "subnet_ids='[$SUBNET_IDS]'
+                    security_group_ids='[$SECURITY_GROUP_IDS]'
+                    task_definition='$TASK_DEFINITION'
+                    ecs_cluster_name='$ECS_CLUSTER'"
 
 ##################################
 # 6) Rollback Mechanism (On Failure)
