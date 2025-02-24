@@ -78,14 +78,15 @@ deploy-k8s:
   needs: ["terraform-apply"]
   script:
     - export DEBIAN_FRONTEND=noninteractive
-    - apt-get update -y && apt-get install -y awscli curl
+    - apt-get update -y && apt-get install -y curl unzip
+    # Install AWS CLI v2
+    - curl -Lo awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+    - unzip awscliv2.zip && ./aws/install
+    # Install kubectl
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    - mkdir -p $HOME/.kube
-    # Generate kubeconfig and set KUBECONFIG explicitly
-    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME --kubeconfig $HOME/.kube/config
-    - export KUBECONFIG=$HOME/.kube/config
-    # Remove sed command if no longer needed
+    # Generate kubeconfig
+    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
     - kubectl apply -f k8s/
   environment:
     name: production
@@ -100,11 +101,17 @@ deploy-ecs:
   image: willhallonline/ansible:alpine
   needs: ["terraform-apply"]
   script:
-    - apk update && apk add --no-cache python3 py3-pip openssh-client
-    - pip install --upgrade pip
-    - pip install awscli
+    - apk update && apk add --no-cache python3 py3-pip openssh-client curl unzip
+    # Install Terraform
+    - curl -LO https://releases.hashicorp.com/terraform/1.5.7/terraform_1.5.7_linux_amd64.zip
+    - unzip terraform_1.5.7_linux_amd64.zip -d /usr/local/bin/
+    # Install AWS CLI v2 (required for EKS kubeconfig)
+    - curl -Lo awscliv2.zip https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+    - unzip awscliv2.zip && ./aws/install
+    # Use Terraform outputs
     - export AWS_DEFAULT_REGION=$AWS_REGION
-    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
+    - cd terraform  # Navigate to Terraform directory
+    - ansible-playbook -i "localhost," -c local ../ansible/ecs-deploy.yaml
       --extra-vars "subnet_ids='$(terraform output -raw private_subnet_ids)'
                     security_group_ids='$(terraform output -raw ecs_security_group_id)'
                     task_definition='$(terraform output -raw ecs_task_definition)'
