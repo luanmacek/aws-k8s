@@ -152,13 +152,14 @@ deploy-ecs:
     - TASK_DEFINITION=$(jq -r '.ecs_task_definition.value' terraform_outputs.json)
     - ECS_CLUSTER=$(jq -r '.ecs_cluster_name.value' terraform_outputs.json)
     # Execute with proper JSON formatting
-    - ansible-playbook -i localhost, -c local ansible/ecs-deploy.yaml \
-        --extra-vars "{
-          \"subnet_ids\": $SUBNET_IDS,
-          \"security_group_ids\": $SECURITY_GROUP_IDS,
-          \"task_definition\": \"$TASK_DEFINITION\",
-          \"ecs_cluster_name\": \"$ECS_CLUSTER\"
-        }"
+    - >
+      ansible-playbook -i localhost, -c local ansible/ecs-deploy.yaml
+      --extra-vars '{
+        "subnet_ids": '"$SUBNET_IDS"',
+        "security_group_ids": '"$SECURITY_GROUP_IDS"',
+        "task_definition": "'"$TASK_DEFINITION"'",
+        "ecs_cluster_name": "'"$ECS_CLUSTER"'"
+      }'
   only:
     - main
 
