@@ -74,7 +74,7 @@ deploy-k8s:
     name: bitnami/kubectl:latest
     entrypoint: [""]
   script:
-    - kubectl apply -f k8s/
+    - kubectl apply -f k8s/ --validate=false
   environment:
     name: production
     kubernetes:
@@ -87,7 +87,7 @@ deploy-k8s:
 ##################################
 deploy-ecs:
   stage: deploy
-  image: geerlingguy/ansible:latest
+  image: willhallonline/ansible:alpine
   script:
     # Configure AWS credentials with environment variables if needed
     - ansible-playbook ansible/ecs-deploy.yaml
