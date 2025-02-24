@@ -91,16 +91,17 @@ deploy-ecs:
   image: willhallonline/ansible:alpine
   needs: ["terraform-apply"]
   script:
-    - apk add jq  # Install JSON parser
-    # Extract values from terraform_outputs.json
-    - SUBNET_IDS=$(jq -r '.private_subnet_ids.value[]' terraform_outputs.json | tr '\n' ',' | sed 's/,$//')
-    - SECURITY_GROUP_IDS=$(jq -r '.ecs_security_group_id.value' terraform_outputs.json)
+    - apk add jq
+    # Extract subnet IDs as JSON array
+    - SUBNET_IDS=$(jq -c '.private_subnet_ids.value' terraform_outputs.json)
+    # Extract other values
+    - SECURITY_GROUP_IDS=$(jq -c '.ecs_security_group_id.value' terraform_outputs.json)
     - TASK_DEFINITION=$(jq -r '.ecs_task_definition.value' terraform_outputs.json)
     - ECS_CLUSTER=$(jq -r '.ecs_cluster_name.value' terraform_outputs.json)
-    # Run Ansible with extracted values
+    # Pass as JSON lists
     - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
-      --extra-vars "subnet_ids='[$SUBNET_IDS]'
-                    security_group_ids='[$SECURITY_GROUP_IDS]'
+      --extra-vars "subnet_ids=$SUBNET_IDS
+                    security_group_ids=$SECURITY_GROUP_IDS
                     task_definition='$TASK_DEFINITION'
                     ecs_cluster_name='$ECS_CLUSTER'"
 

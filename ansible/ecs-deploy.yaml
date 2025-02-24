@@ -9,14 +9,16 @@
     security_group_ids: "{{ security_group_ids }}"
 
   tasks:
-    - name: Run ECS Task
-      command: >
-        aws ecs run-task
-        --cluster "{{ ecs_cluster }}"
-        --launch-type FARGATE
-        --network-configuration '{"awsvpcConfiguration": {
-          "subnets": {{ subnet_ids }},
-          "securityGroups": {{ security_group_ids }},
+  - name: Run ECS Task
+    command: >
+      aws ecs run-task
+      --cluster "{{ ecs_cluster_name }}"
+      --launch-type FARGATE
+      --network-configuration '{
+        "awsvpcConfiguration": {
+          "subnets": {{ subnet_ids | to_json }},
+          "securityGroups": {{ security_group_ids | to_json }},
           "assignPublicIp": "ENABLED"
-        }}'
-        --task-definition "{{ task_definition }}"
+        }
+      }'
+      --task-definition "{{ task_definition }}"
