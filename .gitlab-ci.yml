@@ -1,25 +1,33 @@
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH == "testing"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: never
 stages:
   - validate
   - plan
-  - approve
   - apply
   - deploy
+  - monitoring
   - cleanup
+  - destroy
 
-# Global variables
 variables:
-  AWS_REGION: "eu-central-1"
-  EKS_CLUSTER_NAME: "my-eks-cluster"   # Your EKS cluster name
   TF_IN_AUTOMATION: "true"
-  # AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, etc.) should be set as protected CI/CD variables
-
+  TF_STATE_BUCKET: "terraform-state-bucket-f4b6083a"
+  TF_STATE_LOCK_TABLE: "terraform-state-lock"
+  KUBECONFIG: "/root/.kube/config"
 cache:
-  key: terraform
+  key:
+    files:
+      - terraform/**/*.tf
+    prefix: tf-
   paths:
-    - .terraform/
-
+    - .terraform/modules/ 
 ##################################
-# 1) Validate Terraform
+# 1) Validate Terraform Configuration
 ##################################
 terraform-validate:
   stage: validate
@@ -27,34 +35,38 @@ terraform-validate:
     name: hashicorp/terraform:latest
     entrypoint: [""]
   script:
-    - terraform init -backend=false
-    - terraform validate
-  only:
-    - merge_requests
-    - main
-
+    - terraform init -backend=false 
+    - terraform validate -compact-warnings
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 ##################################
 # 2) Terraform Plan
 ##################################
 terraform-plan:
   stage: plan
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
   script:
-    - cd terraform
-    - terraform init
-    - terraform plan -var-file=terraform.tfvars -out=tfplan
+    - >
+      terraform -chdir=terraform init -reconfigure
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=terraform.tfstate"
+      -backend-config="region=$AWS_DEFAULT_REGION"
+      -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    - rm -f terraform/tfplan
+    - >
+      terraform -chdir=terraform plan
+      -var-file=terraform.tfvars
+      -out=tfplan
+      -compact-warnings
+      -input=false
   artifacts:
     paths:
       - terraform/tfplan
-    when: always
   only:
     - merge_requests
     - main
-
+    - testing
 ##################################
-# 3) Terraform Apply
+# 3) Terraform Apply (Deploy Infrastructure)
 ##################################
 terraform-apply:
   stage: apply
@@ -62,75 +74,169 @@ terraform-apply:
     name: hashicorp/terraform:latest
     entrypoint: [""]
   needs:
-    - job: terraform-plan
-      artifacts: true
+    - terraform-plan
   script:
-    - cd terraform
-    - terraform init
-    - terraform apply -auto-approve tfplan
+    - >
+      terraform -chdir=terraform init
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=terraform.tfstate"
+      -backend-config="region=$AWS_DEFAULT_REGION"
+      -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    - rm -f terraform/tfplan
+    - >
+      terraform -chdir=terraform plan
+      -var-file=terraform.tfvars
+      -out=tfplan
+      -compact-warnings
+      -input=false
+    - terraform -chdir=terraform apply -input=false -auto-approve tfplan
+    - terraform -chdir=terraform output -json > terraform_outputs.json
+  artifacts:
+    paths:
+      - terraform_outputs.json
+    expire_in: 1 hour
   only:
     - main
-
 ##################################
-# 4) Deploy Kubernetes Workloads to EKS
+# 4) Deploy Kubernetes Workloads (EKS Cluster)
 ##################################
 deploy-k8s:
   stage: deploy
-  image: ubuntu:20.04
+  image:
+    name: amazon/aws-cli:2.13.22
+    entrypoint: [""]
+  needs:
+    - terraform-apply
   script:
-    - export DEBIAN_FRONTEND=noninteractive
-    - apt-get update -y && apt-get install -y awscli curl
+    - yum install -y unzip
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Generate kubeconfig using AWS CLI; this usually writes to $HOME/.kube/config
-    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-    # Ensure the kubeconfig uses v1beta1 for the exec plugin
-    - export KUBECONFIG=$HOME/.kube/config
-    - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
-    - kubectl apply -f k8s/
+    - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    - aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$EKS_CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
+    - kubectl apply -f k8s/namespace.yml
+    - kubectl apply -f k8s/ --validate=false --server-side=true
   environment:
     name: production
     kubernetes:
-      agent: eks-gitlab-agent
+      namespace: production
   only:
     - main
-
 ##################################
-# 5) Deploy ECS Tasks via Ansible (Run on AWS)
+# 5) Deploy ECS Tasks
 ##################################
 deploy-ecs:
   stage: deploy
-  image: willhallonline/ansible:alpine
+  image: nguyenluan1/awscli-ansible:latest
+  needs:
+    - terraform-apply
   script:
-    - apk update && apk add --no-cache python3 py3-pip openssh-client
-    - pip3 install awscli
-    # Export AWS_DEFAULT_REGION so that AWS CLI picks up the region for ECS commands
-    - export AWS_DEFAULT_REGION=$AWS_REGION
-    # Run the playbook using an inline inventory and local connection to avoid SSH attempts
-    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml
+    - SUBNET_IDS=$(jq -c '.private_subnet_ids.value' terraform_outputs.json)
+    - SECURITY_GROUP_IDS=$(jq -c '.ecs_security_group_id.value' terraform_outputs.json)
+    - TASK_DEFINITION=$(jq -r '.ecs_task_definition.value' terraform_outputs.json)
+    - ECS_CLUSTER=$(jq -r '.ecs_cluster_name.value' terraform_outputs.json)
+    - echo "SUBNET_IDS=${SUBNET_IDS}"
+    - echo "SECURITY_GROUP_IDS=${SECURITY_GROUP_IDS}"
+    - echo "TASK_DEFINITION=${TASK_DEFINITION}"
+    - echo "ECS_CLUSTER=${ECS_CLUSTER}"
+    - ansible-playbook -i localhost, -c local ansible/ecs-deploy.yaml --extra-vars "subnet_ids=${SUBNET_IDS} security_group_ids=${SECURITY_GROUP_IDS} task_definition=${TASK_DEFINITION} ecs_cluster_name=${ECS_CLUSTER}"
+  only:
+    - main
+##################################
+# 6) Deploy Monitoring Stack (Prometheus & Grafana via Helm)
+##################################
+deploy-monitoring:
+  stage: monitoring
+  when: manual
+  image:
+    name: amazon/aws-cli:2.13.22
+    entrypoint: [""]
+  needs:
+    - deploy-k8s
+  script:
+    # Install required packages
+    - yum install -y unzip openssl tar git
+    # Install kubectl
+    - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+    - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+    # Install Helm 3 using the official script
+    - curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    # Update kubeconfig so kubectl and Helm can reach the EKS cluster
+    - aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$EKS_CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
+    - cat "$KUBECONFIG"  # Debug: verify kubeconfig
+    # Cleanup old monitoring stack before redeploying
+    - helm uninstall monitoring-stack -n monitoring || true
+    - kubectl delete namespace monitoring --wait || true
+    - kubectl create namespace monitoring
+    # Add and update Helm repositories
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm repo update
+    # Deploy monitoring stack **without backslashes** (fixes Helm argument issue)
+    - >
+      helm upgrade --install monitoring-stack prometheus-community/kube-prometheus-stack
+      --namespace monitoring
+      --create-namespace
+      --version 48.1.1
+      --set grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD"
+      --wait
+      --timeout 900s
+      --atomic
+
+    - kubectl rollout status deployment -n monitoring monitoring-stack-grafana 
+    - kubectl rollout status statefulset -n monitoring prometheus-monitoring-stack-kube-prom-prometheus 
+    # Show status of the release and list pods in the monitoring namespace for verification
+    - helm status monitoring-stack -n monitoring 
+    - kubectl get pods -n monitoring -o wide 
   only:
     - main
 
+
 ##################################
-# 6) Rollback Mechanism (On Failure)
+# 7) Rollback Mechanism (Manual Cleanup)
 ##################################
 rollback:
   stage: cleanup
-  when: on_failure
-  image: hashicorp/terraform:latest
+  when: manual
   script:
-    - terraform init
-    - terraform destroy -auto-approve
-    - apk update && apk add --no-cache curl python3 py3-pip
-    - pip3 install ansible awscli
+    - cd terraform
+    - >
+      terraform init
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=terraform.tfstate"
+      -backend-config="region=$AWS_DEFAULT_REGION"
+      -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    - echo "Terraform destroy is disabled by default. Run manually if needed."
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-    - chmod +x kubectl && mv kubectl /usr/local/bin/
-    - export DEBIAN_FRONTEND=noninteractive
-    - apt-get update -y && apt-get install -y awscli
-    - aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
-    - export KUBECONFIG=$HOME/.kube/config
-    - sed -i 's/v1alpha1/v1beta1/g' $KUBECONFIG
-    - kubectl delete -f k8s/ || true
-    - ansible-playbook -i "localhost," -c local ansible/ecs-deploy.yaml --extra-vars "rollback=true"
+    - chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $EKS_CLUSTER_NAME
+    - kubectl delete -f k8s/ --ignore-not-found=true --wait=true
+  allow_failure: true
   only:
     - main
+##################################
+# 8) Destroy Infrastructure (Manual Trigger)
+##################################
+destroy:
+  stage: destroy
+  image:
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
+  when: manual
+  script: |
+    cd terraform
+    terraform init -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=terraform.tfstate" -backend-config="region=$AWS_DEFAULT_REGION" -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    terraform destroy -auto-approve -input=false
+  only:
+    - main
+cleanup-state:
+  stage: cleanup
+  script:
+    - >
+      terraform -chdir=terraform init
+      -backend-config="bucket=$TF_STATE_BUCKET"
+      -backend-config="key=terraform.tfstate"
+      -backend-config="region=$AWS_DEFAULT_REGION"
+      -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    - terraform -chdir=terraform destroy -auto-approve -input=false
+  when: manual
+  only:
+    - testing  # Only run cleanup for testing branches
