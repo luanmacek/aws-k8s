@@ -1,9 +1,14 @@
 ---
-- name: Run ECS task on Fargate
+- name: Deploy ECS Task
   hosts: localhost
+  connection: local
+  vars:
+    ecs_cluster: "{{ ecs_cluster_name }}"
+    task_definition: "{{ task_definition }}"
+    subnet_ids: "{{ subnet_ids }}"
   tasks:
-    - name: Run ECS Task
-      command: >
-        aws ecs run-task --cluster ecs-cluster --launch-type FARGATE
-        --network-configuration "awsvpcConfiguration={subnets=[subnet-xxxxx],securityGroups=[sg-xxxxx],assignPublicIp=ENABLED}"
-        --task-definition ecs-task
+  - name: Run ECS Task
+    shell: >
+      aws ecs run-task --cluster "{{ ecs_cluster_name }}" --launch-type FARGATE
+      --network-configuration "{\"awsvpcConfiguration\": {\"subnets\": {{ subnet_ids | to_json }}, \"securityGroups\": [\"{{ security_group_ids }}\"], \"assignPublicIp\": \"ENABLED\"}}"
+      --task-definition "{{ task_definition }}"
