@@ -105,7 +105,16 @@ deploy-k8s:
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     - install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
     - aws eks update-kubeconfig --region "$AWS_DEFAULT_REGION" --name "$EKS_CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
+    # Install cert-manager CRDs (adjust version as needed)
+    - kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.11.0/cert-manager.crds.yaml
+    # Ensure required namespaces exist
+    - kubectl create namespace cert-manager || true
+    - kubectl create namespace monitoring || true
+    # Optionally wait a few seconds for CRDs to be registered
+    - sleep 10
+    # Create any additional namespaces defined in your manifests
     - kubectl apply -f k8s/namespace.yml
+    # Apply the rest of your Kubernetes manifests
     - kubectl apply -f k8s/ --validate=false --server-side=true
   environment:
     name: production
@@ -113,6 +122,7 @@ deploy-k8s:
       namespace: production
   only:
     - main
+
 ##################################
 # 5) Deploy ECS Tasks
 ##################################
