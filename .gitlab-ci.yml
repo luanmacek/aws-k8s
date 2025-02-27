@@ -45,8 +45,8 @@ terraform-validate:
 terraform-plan:
   stage: plan
   image:
-  name: hashicorp/terraform:latest
-  entrypoint: [""]
+    name: hashicorp/terraform:latest
+    entrypoint: [""]
   script:
     - >
       terraform -chdir=terraform init -reconfigure
