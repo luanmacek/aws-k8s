@@ -44,9 +44,7 @@ terraform-validate:
 ##################################
 terraform-plan:
   stage: plan
-  image:
-    name: hashicorp/terraform:latest
-    entrypoint: [""]
+  image: hashicorp/terraform:latest
   script:
     - >
       terraform -chdir=terraform init -reconfigure
@@ -68,7 +66,7 @@ terraform-plan:
     - merge_requests
     - main
     - testing
-##################################
+#########
 # 3) Terraform Apply (Deploy Infrastructure)
 ##################################
 terraform-apply:
