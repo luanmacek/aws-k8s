@@ -205,6 +205,9 @@ deploy-monitoring:
 ##################################
 rollback:
   stage: cleanup
+  image:
+  name: hashicorp/terraform:latest
+  entrypoint: [""]
   when: manual
   script:
     - cd terraform
