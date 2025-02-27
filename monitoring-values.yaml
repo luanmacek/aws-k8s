@@ -1,0 +1,91 @@
+# High Availability
+prometheusOperator:
+  replicaCount: 1
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: kube-prometheus-stack
+              app.kubernetes.io/component: operator
+          topologyKey: "kubernetes.io/hostname"
+
+# Resource Optimization
+grafana:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+  persistence:
+    enabled: true
+    storageClassName: gp2
+    size: 10Gi
+
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    retention: 15d
+    retentionSize: 50GB
+    resources:
+      requests:
+        cpu: 500m
+        memory: 4Gi
+      limits:
+        cpu: 2
+        memory: 8Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp2
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+
+alertmanager:
+  alertmanagerSpec:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# Security Hardening
+kube-state-metrics:
+  automountServiceAccountToken: false
+prometheus-node-exporter:
+  automountServiceAccountToken: false
+  hostRootFsMount: false
+
+# Network Security
+grafana:
+  service:
+    type: ClusterIP  # Use Ingress instead of LoadBalancer directly
+  ingress:
+    enabled: true
+    annotations:
+      nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8"
+    hosts:
+      - grafana.luanmacek.com
+    tls:
+      - secretName: grafana-tls
+
+# Monitoring Autoscaling
+prometheus:
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+# Reduce Footprint
+prometheus-node-exporter:
+  enabled: true
+  replicaCount: 3  # Match your node count
+  tolerations:
+    - operator: "Exists"

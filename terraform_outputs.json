@@ -1,0 +1,54 @@
+{
+  "ecs_cluster_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "my-ecs-cluster"
+  },
+  "ecs_security_group_id": {
+    "sensitive": false,
+    "type": "string",
+    "value": "sg-0d12b4f1875ea4049"
+  },
+  "ecs_task_definition": {
+    "sensitive": false,
+    "type": "string",
+    "value": "my-ecs-cluster-task"
+  },
+  "private_subnet_ids": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "subnet-06ddd70538e04bb31",
+      "subnet-04929f8114731c829",
+      "subnet-0bae93ad5a19be9bb"
+    ]
+  },
+  "public_subnet_ids": {
+    "sensitive": false,
+    "type": [
+      "tuple",
+      [
+        "string",
+        "string",
+        "string"
+      ]
+    ],
+    "value": [
+      "subnet-0f36614a7990f7755",
+      "subnet-099127a113582aed6",
+      "subnet-050f3129baaad3947"
+    ]
+  },
+  "vpc_id": {
+    "sensitive": false,
+    "type": "string",
+    "value": "vpc-07efe7a933ca14d30"
+  }
+}
