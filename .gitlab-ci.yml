@@ -45,18 +45,10 @@ terraform-validate:
 terraform-plan:
   stage: plan
   image: hashicorp/terraform:latest
-  script: |
-    terraform -chdir=terraform init -reconfigure \
-      -backend-config="bucket=$TF_STATE_BUCKET" \
-      -backend-config="key=terraform.tfstate" \
-      -backend-config="region=$AWS_DEFAULT_REGION" \
-      -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
-    rm -f terraform/tfplan
-    terraform -chdir=terraform plan \
-      -var-file=terraform.tfvars \
-      -out=tfplan \
-      -compact-warnings \
-      -input=false
+  script:
+    - terraform -chdir=terraform init -reconfigure -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=terraform.tfstate" -backend-config="region=$AWS_DEFAULT_REGION" -backend-config="dynamodb_table=$TF_STATE_LOCK_TABLE"
+    - rm -f terraform/tfplan
+    - terraform -chdir=terraform plan -var-file=terraform.tfvars -out=tfplan -compact-warnings -input=false
   artifacts:
     paths:
       - terraform/tfplan
