@@ -3,8 +3,6 @@ deploy-k8s:
   image:
     name: amazon/aws-cli:2.13.22
     entrypoint: [""]
-  needs:
-    - terraform-apply
   script:
     - yum install -y unzip
     - curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
