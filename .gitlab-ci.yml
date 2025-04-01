@@ -251,3 +251,23 @@ cleanup-state:
   when: manual
   only:
     - testing  # Only run cleanup for testing branches
+
+##################################
+# 9) Mirror do GitHubu
+##################################
+mirror-to-github:
+  stage: cleanup  
+  image: alpine:latest
+  script:
+    - apk add --no-cache git
+    - git config --global user.name "GitLab Mirror Bot"
+    - git config --global user.email "mirror@ci.com"
+    - git clone --mirror https://gitlab.com/luanmacek/aws-k8s.git
+    - cd aws-k8s.git
+    - git remote add github https://luanmacek:${GITHUB_TOKEN}@github.com/luanmacek/aws-k8s.git
+    - git push --mirror github
+  only:
+    - main
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+  allow_failure: false
