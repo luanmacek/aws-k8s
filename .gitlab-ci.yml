@@ -256,7 +256,7 @@ cleanup-state:
 # 9) Mirror do GitHubu
 ##################################
 mirror-to-github:
-  stage: cleanup  
+  stage: cleanup
   image: alpine:latest
   script:
     - apk add --no-cache git
@@ -267,5 +267,5 @@ mirror-to-github:
     - git remote add github https://luanmacek:${GITHUB_TOKEN}@github.com/luanmacek/aws-k8s.git
     - git push --mirror github
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-  allow_failure: false
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: always
