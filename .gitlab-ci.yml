@@ -266,8 +266,6 @@ mirror-to-github:
     - cd aws-k8s.git
     - git remote add github https://luanmacek:${GITHUB_TOKEN}@github.com/luanmacek/aws-k8s.git
     - git push --mirror github
-  only:
-    - main
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push"'
   allow_failure: false
